@@ -38,6 +38,10 @@ jobs:
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdtools.zip
           unzip -q /tmp/cmdtools.zip -d "$SDK_DIR/cmdline-tools"
           mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
+          # Buildozer ищет sdkmanager по старому пути tools/bin — сделаем его там
+          mkdir -p "$SDK_DIR/tools/bin"
+          cp -a "$SDK_DIR/cmdline-tools/latest/bin/." "$SDK_DIR/tools/bin/"
+          cp -a "$SDK_DIR/cmdline-tools/latest/lib/." "$SDK_DIR/tools/lib/"
           export PATH="$SDK_DIR/cmdline-tools/latest/bin:$PATH"
           echo "Java version:" && java -version
           yes | sdkmanager --licenses > /dev/null || true
