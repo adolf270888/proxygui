@@ -1,14 +1,12 @@
-name: Build APK
+name: Build ProxyGUI APK
 
 on:
   push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,19 +16,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y zip unzip openjdk-17-jdk autoconf automake libtool \
-            pkg-config zlib1g-dev libncurses-dev cmake build-essential \
-            libssl-dev libffi-dev libsqlite3-dev
+          sudo apt-get install -y zip unzip build-essential ccache \
+            libltdl-dev libtool pkg-config autoconf automake
 
-      - name: Install buildozer and cython
-        run: |
-          pip install --upgrade pip
-          pip install buildozer cython
+      - name: Install Buildozer
+        run: pip install buildozer cython
 
-      - name: Preinstall Android SDK with licenses accepted
+      - name: Preinstall Android SDK
         run: |
           SDK_DIR=$HOME/.buildozer/android/platform/android-sdk
           mkdir -p "$SDK_DIR/cmdline-tools"
@@ -38,43 +39,42 @@ jobs:
           unzip -q /tmp/cmdtools.zip -d "$SDK_DIR/cmdline-tools"
           mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
           export PATH="$SDK_DIR/cmdline-tools/latest/bin:$PATH"
+          echo "Java version:" && java -version
+          yes | sdkmanager --licenses > /dev/null || true
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34"
-          yes | sdkmanager --licenses > /dev/null || true
           echo "SDK contents:" && ls "$SDK_DIR/build-tools"
 
       - name: Patch buildozer.spec
         run: |
-          python3 - <<'PYEOF'
-          import re, io
-          path = "buildozer.spec"
-          with open(path, "r", encoding="utf-8") as f:
-              text = f.read()
-          text = re.sub(r"^[#\s]*android\.accept_sdk_license\s*=.*$", "android.accept_sdk_license = True", text, flags=re.M)
-          if "android.accept_sdk_license" not in text:
-              text += "\nandroid.accept_sdk_license = True\n"
-          text = re.sub(r"^[#\s]*android\.build_tools_version\s*=.*$", "android.build_tools_version = 34.0.0", text, flags=re.M)
-          if "android.build_tools_version" not in text:
-              text += "android.build_tools_version = 34.0.0\n"
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(text)
-          print("--- patched spec ---")
-          for line in text.splitlines():
-              if "accept_sdk_license" in line or "build_tools_version" in line:
-                  print(line)
-          print("--- end ---")
-          PYEOF
+          python - <<'EOF'
+          import re
+          p = "buildozer.spec"
+          s = open(p).read()
+          def setkey(s, key, val):
+              pat = rf'^#?\s*{re.escape(key)}\s*=.*$'
+              repl = f"{key} = {val}"
+              if re.search(pat, s, re.M):
+                  return re.sub(pat, repl, s, count=1, flags=re.M)
+              return s + f"\n{repl}\n"
+          s = setkey(s, "android.accept_sdk_license", "True")
+          s = setkey(s, "android.build_tools_version", "34.0.0")
+          open(p, "w").write(s)
+          print("patched:")
+          EOF
+          grep -n "accept_sdk_license\|build_tools_version" buildozer.spec
 
       - name: Build APK
         run: |
-          buildozer -v android debug 2>&1 | tee build.log
-          ls -la bin/ || true
+          set -o pipefail
+          buildozer -v android debug | tee build.log
 
       - name: Show build log tail on failure
         if: failure()
-        run: tail -n 60 build.log || true
+        run: tail -n 60 build.log
 
-      - name: Upload APK artifact
+      - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: proxygui-apk
