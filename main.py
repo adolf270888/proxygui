@@ -358,9 +358,12 @@ def get_proxies(mode, log=None):
         try:
             html = fetch(PAGE_URL)
         except Exception as e:
-            reason = f"страница не загружена: {e.__class__.__name__}"
-            log(f"[поиск] {reason}, повтор через {RETRY_WAIT:.0f} с…")
-            time.sleep(RETRY_WAIT)
+            detail = ""
+        if hasattr(e, "reason"):
+            detail = f" reason={e.reason!r}"
+        if hasattr(e, "headers") and e.headers is not None:
+            detail += f" status={getattr(e, 'status', getattr(e, 'code', '?'))}"
+        self.log(f"не удалось загрузить: {type(e).__name__}: {e}{detail}")
             continue
         last_html = html
         form_html, action, method = find_search_form(html)
