@@ -85,7 +85,7 @@ jobs:
           for key, val in [
               ("android.accept_sdk_license", "True"),
               ("android.build_tools_version", "34.0.0"),
-              ("p4a.branch", "2024.10.1"),
+              ("p4a.branch", "v2024.01.21"),
           ]:
               lines = setkey(lines, key, val)
           open(p, "w").write("\n".join(lines) + "\n")
@@ -118,7 +118,7 @@ jobs:
           if [ ! -d "$P4A_DIR/.git" ]; then
             for i in 1 2 3; do
               echo "=== Клонирование p4a, попытка $i ==="
-              if git clone -b 2024.10.1 --single-branch https://github.com/kivy/python-for-android.git "$P4A_DIR"; then
+              if git clone -b v2024.01.21 --single-branch https://github.com/kivy/python-for-android.git "$P4A_DIR"; then
                 break
               fi
               rm -rf "$P4A_DIR"
@@ -134,12 +134,17 @@ jobs:
       - name: Show build log tail on failure
         if: failure()
         run: |
-          echo "===== СТРОКИ С ОШИБКАМИ ====="
-          grep -i -n -E "error|fatal|failed|denied|not found|Traceback|CRITICAL" build.log | tail -n 50
-          echo "===== НАЧАЛО ЛОГА (первые 60 строк) ====="
-          head -n 60 build.log
-          echo "===== ХВОСТ ЛОГА ====="
-          tail -n 120 build.log | head -c 20000
+          if [ -f build.log ]; then
+            echo "===== СТРОКИ С ОШИБКАМИ ====="
+            grep -i -n -E "error|fatal|failed|denied|not found|Traceback|CRITICAL" build.log | tail -n 50
+            echo "===== НАЧАЛО ЛОГА ====="
+            head -n 60 build.log
+            echo "===== ХВОСТ ЛОГА ====="
+            tail -n 120 build.log | head -c 20000
+          else
+            echo "build.log не создан — сборка упала до запуска Buildozer"
+          fi
+
 
       - name: Upload APK
         if: success()
