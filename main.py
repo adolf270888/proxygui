@@ -353,21 +353,22 @@ def get_proxies(mode, log=None):
     last_html = None
     cand_queue = []          # кандидаты значения location; [] = ещё не построена
     attempt = 0
-    while attempt < MAX_ATTEMPTS:
+    html = None
+    while attempt < MAX_ATTEMPTS and html is None:
         attempt += 1
-    try:
-        html = fetch(PAGE_URL)
-    except Exception as e:
-        detail = ""
-        if hasattr(e, "reason"):
-            detail = f" reason={e.reason!r}"
-        if hasattr(e, "headers") and e.headers is not None:
-            detail += f" status={getattr(e, 'status', getattr(e, 'code', '?'))}"
-        log(f"[поиск] не удалось загрузить: {type(e).__name__}: {e}{detail}")
-        time.sleep(RETRY_WAIT)
-        continue
+        try:
+            html = fetch(PAGE_URL)
+        except Exception as e:
+            detail = ""
+            if hasattr(e, "reason"):
+                detail = f" reason={e.reason!r}"
+            log(f"[поиск] не удалось загрузить: {type(e).__name__}: {e}{detail}")
+            time.sleep(RETRY_WAIT)
 
-        last_html = html
+    if html is None:
+        return [], "не удалось загрузить страницу поиска", None
+
+    last_html = html
         form_html, action, method = find_search_form(html)
         if not form_html:
             found = parse_table_proxies(html, only_russia=only_ru, exclude_russia=ex_ru)
