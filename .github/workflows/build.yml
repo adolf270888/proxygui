@@ -102,6 +102,20 @@ jobs:
 
       - name: Create manifest args file
         run: printf 'android:usesCleartextTraffic="true"\n' > manifest_args.txt    
+      
+      - name: Syntax check main.py
+        run: |
+          python -m py_compile main.py && echo "SYNTAX OK" || {
+            echo "===== СИНТАКСИЧЕСКАЯ ОШИБКА ====="
+            python - <<'EOF'
+            import py_compile, traceback
+            try:
+                py_compile.compile("main.py", doraise=True)
+            except py_compile.PyCompileError as e:
+                print(e)
+            EOF
+            exit 1
+          }
           
       - name: Build APK
         run: |
