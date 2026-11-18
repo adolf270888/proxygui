@@ -1310,23 +1310,28 @@ class ProxyApp(App):
             self.log(f"[поиск] {source}: найдено {len(proxies)}")
             save_cache(proxies, self.mode_name)
             STORE.update_many(proxies)
-            self.q.put(("counts", "всего: %d · живых: ? · утечек: ?" % len(proxies)))
+            todo = proxies[:TEST_LIMIT]
+            total = len(todo)
+            self.q.put(("counts", f"всего: {len(proxies)} · живых: ? · утечек: ?"))
+            self.log(f"[проверка] проверяю {total} прокси…")
+            done, alive_seen, batch = 0, 0, []
             with concurrent.futures.ThreadPoolExecutor(TEST_WORKERS) as ex:
-                futs = [ex.submit(check_quality, p) for p in proxies[:TEST_LIMIT]]
-                total = len(futs)
-                checked = []
+                futs = [ex.submit(check_quality, p) for p in todo]
                 for f in concurrent.futures.as_completed(futs):
-                    checked.append(f.result())
-                    done = len(checked)
+                    p = f.result()
+                    done += 1
+                    batch.append(dict(p))
+                    if p.get("alive"):
+                        alive_seen += 1
+                    self.q.put(("row", dict(p)))
                     if done % 10 == 0 or done == total:
-                        alive = sum(1 for c in checked if c.get("alive"))
-                        self.log(f"[проверка] {done}/{total}, живых: {alive}…")
+                        self.log(f"[проверка] {done}/{total}, живых: {alive_seen}…")
                     if done % 25 == 0 or done == total:
-                        STORE.update_many(checked)
-                        checked = []
-                        alive = sum(1 for c in STORE.all() if c.get("alive"))
-                        self.q.put(("counts", f"всего: {len(proxies)} · живых: {alive} · утечек: ?"))
-                        self.q.put(("refilter", None))
+                        STORE.update_many(batch)
+                        batch = []
+                        self.q.put(("counts", self._counts_text()))
+            STORE.update_many(batch)
+            save_cache(STORE.all(), self.mode_name)
             self.q.put(("counts", self._counts_text()))
             countries = sorted({p.get("country", "") for p in STORE.all() if p.get("country")})
             self.q.put(("filters", ["все страны"] + countries))
@@ -1335,6 +1340,7 @@ class ProxyApp(App):
                 best = STORE.best(self.mode_name, version=5)
                 target = best[0] if best else None
                 if target:
+                    self.log(f"[включение] лучший живой: {target['ip']}:{target['port']}")
                     self.activate(target)
                 else:
                     self.log("[включение] живых SOCKS5 не нашлось — попробуйте позже.")
@@ -1350,9 +1356,12 @@ class ProxyApp(App):
     def activate(self, p, manual=False):
         if manual:
             self.log(f"[включение] перепроверяю {p['ip']}:{p['port']}…")
-            ms = quick_check(p["ip"], p["port"], p["version"])
+            ms = quick_check(p["ip"], p["port"], p["version"], timeout=4.0)
             if ms is None:
-                self.log(f"[включение] {p['ip']}:{p['port']} не отвечает — включение отменено.")
+                time.sleep(2)
+                ms = quick_check(p["ip"], p["port"], p["version"], timeout=4.0)
+            if ms is None:
+                self.log(f"[включение] {p['ip']}:{p['port']} не отвечает дважды — включение отменено.")
                 return
         self.manual = manual
         if not self.bridge.start(p, self.mode_name):
