@@ -112,6 +112,21 @@ jobs:
           fi
           export PATH="$SDK_DIR/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses > /dev/null || true
+
+          # Предварительное клонирование p4a с повторными попытками
+          P4A_DIR=$HOME/.buildozer/android/platform/python-for-android
+          if [ ! -d "$P4A_DIR/.git" ]; then
+            for i in 1 2 3; do
+              echo "=== Клонирование p4a, попытка $i ==="
+              if git clone -b 2024.10.1 --single-branch https://github.com/kivy/python-for-android.git "$P4A_DIR"; then
+                break
+              fi
+              rm -rf "$P4A_DIR"
+              [ "$i" = "3" ] && { echo "CLONE FAILED"; exit 1; }
+              sleep 10
+            done
+          fi
+
           set -o pipefail
           buildozer -v android debug 2>&1 | tee build.log
 
@@ -119,12 +134,12 @@ jobs:
       - name: Show build log tail on failure
         if: failure()
         run: |
-          echo "===== ПАДАЮЩАЯ КОМАНДА ====="
-          grep -n "Run '" build.log | tail -n 5
-          echo "===== TRACEBACK / ОШИБКИ ====="
-          grep -n -A 12 -E "Traceback|CRITICAL|Exception|failed with output" build.log | tail -n 100
-          echo "===== КОНЕЦ ЛОГА ====="
-          tail -n 100 build.log | head -c 20000
+          echo "===== СТРОКИ С ОШИБКАМИ ====="
+          grep -i -n -E "error|fatal|failed|denied|not found|Traceback|CRITICAL" build.log | tail -n 50
+          echo "===== НАЧАЛО ЛОГА (первые 60 строк) ====="
+          head -n 60 build.log
+          echo "===== ХВОСТ ЛОГА ====="
+          tail -n 120 build.log | head -c 20000
 
       - name: Upload APK
         if: success()
