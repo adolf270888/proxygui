@@ -29,7 +29,6 @@ import concurrent.futures
 import gzip
 import http.cookiejar
 import json
-import os
 import queue
 import re
 import socket
@@ -41,7 +40,13 @@ import urllib.parse
 import urllib.request
 import zlib
 from html import unescape as html_unescape
-
+import os
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except ImportError:
+    pass
 
 PAGE_URL = "https://te-home.net/?do=tools&action=socks"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
