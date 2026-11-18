@@ -8,6 +8,7 @@ version = 1.0
 requirements = python3,kivy
 orientation = portrait
 fullscreen = 0
+android.extra_manifest_application_arguments = android:usesCleartextTraffic="true"
 android.permissions = INTERNET,POST_NOTIFICATIONS
 android.api = 34
 android.minapi = 24
