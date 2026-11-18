@@ -70,7 +70,7 @@ jobs:
                       if in_app and not done:
                           out.append(f"{key} = {val}")
                           done = True
-                      continue  # убираем дубликаты и закомментированные
+                      continue
                   out.append(ln)
               if not done:
                   for i, ln in enumerate(out):
@@ -90,13 +90,15 @@ jobs:
               lines = setkey(lines, key, val)
           open(p, "w").write("\n".join(lines) + "\n")
           print("patched [app] section:")
+          in_app = False
+          for ln in lines:
+              s = ln.strip().lower()
+              if s == '[app]': in_app = True
+              elif s.startswith('['): in_app = False
+              if in_app and re.match(r'(android\.accept_sdk_license|android\.build_tools_version|p4a\.branch)\s*=', ln):
+                  print(" ", ln)
           EOF
-          sed -n '/^
-          $$
-          app
-          $$
-          /,/^$/p' buildozer.spec | grep -E "accept_sdk_license|build_tools_version|p4a.branch"
-      
+          
       - name: Build APK
         run: |
           SDK_DIR=$HOME/.buildozer/android/platform/android-sdk
