@@ -5,7 +5,7 @@ package.domain = org.proxygui
 source.dir = .
 source.include_exts = py,png,jpg,kv,txt
 version = 1.0
-requirements = python3,kivy
+requirements = python3,kivy,certifi
 orientation = portrait
 fullscreen = 0
 android.extra_manifest_application_arguments = android:usesCleartextTraffic="true"
