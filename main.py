@@ -353,8 +353,7 @@ def get_proxies(mode, log=None):
     last_html = None
     cand_queue = []          # кандидаты значения location; [] = ещё не построена
     attempt = 0
-    html = None
-    while attempt < MAX_ATTEMPTS and html is None:
+    while attempt < MAX_ATTEMPTS:
         attempt += 1
         try:
             html = fetch(PAGE_URL)
@@ -364,28 +363,25 @@ def get_proxies(mode, log=None):
                 detail = f" reason={e.reason!r}"
             log(f"[поиск] не удалось загрузить: {type(e).__name__}: {e}{detail}")
             time.sleep(RETRY_WAIT)
+            continue                 # сетевой сбой: кандидат не расходуется
 
-    if html is None:
-        return [], "не удалось загрузить страницу поиска", None
+        last_html = html
+        form_html, action, method = find_search_form(html)
+        if not form_html:
+            found = parse_table_proxies(html, only_russia=only_ru, exclude_russia=ex_ru)
+            if found:
+                return found, "случайная выборка главной страницы (формы нет)", None
+            return [], "формы поиска на странице нет", None
 
-    last_html = html
+        code = solve_captcha(form_html)
+        if code is None:
+            _dump("form.html", html)
+            reason = "капчу решить не удалось (дамп: tehome_form.html)"
+            log(f"[поиск] {reason}, повтор…")
+            time.sleep(RETRY_WAIT)
+            continue
 
-    form_html, action, method = find_search_form(html)
-    if not form_html:
-        found = parse_table_proxies(html, only_russia=only_ru, exclude_russia=ex_ru)
-        if found:
-            return found, "случайная выборка главной страницы (формы нет)", None
-        return [], "формы поиска на странице нет", None
-
-    code = solve_captcha(form_html)
-    if code is None:
-        _dump("form.html", html)
-        reason = "капчу решить не удалось (дамп: tehome_form.html)"
-        log(f"[поиск] {reason}, повтор…")
-        time.sleep(RETRY_WAIT)
-        return [], reason, None
-
-    if not cand_queue:
+        if not cand_queue:
             cand_queue = resolve_location_candidates(form_html, mode)
             if not cand_queue:
                 if only_ru:
@@ -478,6 +474,7 @@ def get_proxies(mode, log=None):
         return found, "Random 100 главной страницы (без фильтра страны)", reason
     return [], (f"фильтры не сработали и Random 100 пуст "
                 f"(последняя причина: {reason})"), reason
+
 
 def recv_exact(sock, size):
     """Читает ровно size байт; None означает закрытое/неполное соединение."""
