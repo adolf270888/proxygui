@@ -73,10 +73,9 @@ jobs:
           EOF
           grep -n "accept_sdk_license\|build_tools_version\|skip_update" buildozer.spec
 
+      
       - name: Build APK
         run: |
-          # Страховка: мост для sdkmanager создаём прямо перед сборкой,
-          # чтобы он был на месте даже если предыдущий шаг из старой версии
           SDK_DIR=$HOME/.buildozer/android/platform/android-sdk
           if [ ! -e "$SDK_DIR/tools/bin/sdkmanager" ]; then
             mkdir -p "$SDK_DIR/cmdline-tools"
@@ -89,7 +88,8 @@ jobs:
           export PATH="$SDK_DIR/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses > /dev/null || true
           set -o pipefail
-          buildozer -v android debug | tee build.log
+          buildozer -v android debug 2>&1 | tee build.log
+
 
       - name: Show build log tail on failure
         if: failure()
@@ -97,9 +97,9 @@ jobs:
           echo "===== ПАДАЮЩАЯ КОМАНДА ====="
           grep -n "Run '" build.log | tail -n 5
           echo "===== TRACEBACK / ОШИБКИ ====="
-          grep -n -B 2 -A 15 -E "Traceback|CRITICAL|Exception:" build.log | tail -n 80
-          echo "===== ХВОСТ ЛОГА (последние 120 строк) ====="
-          tail -n 120 build.log | head -c 20000
+          grep -n -A 12 -E "Traceback|CRITICAL|Exception|failed with output" build.log | tail -n 100
+          echo "===== КОНЕЦ ЛОГА ====="
+          tail -n 100 build.log | head -c 20000
 
       - name: Upload APK
         if: success()
