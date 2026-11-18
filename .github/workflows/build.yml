@@ -82,7 +82,7 @@ jobs:
                       out.append("[app]")
                       out.append(f"{key} = {val}")
               return out
-                  for key, val in [
+          for key, val in [
               ("android.accept_sdk_license", "True"),
               ("android.build_tools_version", "34.0.0"),
               ("p4a.branch", "v2024.01.21"),
@@ -96,7 +96,7 @@ jobs:
               s = ln.strip().lower()
               if s == '[app]': in_app = True
               elif s.startswith('['): in_app = False
-              if in_app and re.match(r'(android\.accept_sdk_license|android\.build_tools_version|p4a\.branch)\s*=', ln):
+              if in_app and re.match(r'(android\.accept_sdk_license|android\.build_tools_version|p4a\.branch|android\.extra_manifest_application_arguments)\s*=', ln):
                   print(" ", ln)
           EOF
 
