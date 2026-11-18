@@ -486,10 +486,17 @@ def get_proxies(mode, log=None):
                 f"(последняя причина: {reason})"), reason
 
 
-def recv_exact(sock, size):
-    """Читает ровно size байт; None означает закрытое/неполное соединение."""
+def recv_exact(sock, size, deadline=None):
+    """Читает ровно size байт; None — закрытое/неполное соединение.
+    deadline — общий лимит времени: не даёт «медленному капанию»
+    сервера обнулять таймаут на каждый байт."""
     data = bytearray()
     while len(data) < size:
+        if deadline is not None:
+            left = deadline - time.time()
+            if left <= 0:
+                raise socket.timeout("общий таймаут истёк")
+            sock.settimeout(left)
         chunk = sock.recv(size - len(data))
         if not chunk:
             return None
@@ -497,9 +504,9 @@ def recv_exact(sock, size):
     return bytes(data)
 
 
-def read_socks5_reply(sock):
+def read_socks5_reply(sock, deadline=None):
     """Полностью читает ответ SOCKS5 CONNECT, включая адрес и порт."""
-    head = recv_exact(sock, 4)
+    head = recv_exact(sock, 4, deadline)
     if head is None or head[0] != 5:
         return False
     if head[3] == 1:
@@ -507,13 +514,13 @@ def read_socks5_reply(sock):
     elif head[3] == 4:
         size = 16
     elif head[3] == 3:
-        length = recv_exact(sock, 1)
+        length = recv_exact(sock, 1, deadline)
         if length is None:
             return False
         size = length[0]
     else:
         return False
-    tail = recv_exact(sock, size + 2)
+    tail = recv_exact(sock, size + 2, deadline)
     return tail is not None and head[1] == 0
 
 
@@ -525,11 +532,12 @@ def socks_open(proxy_ip, proxy_port, version, dst_ip=None, dst_domain=None,
     Возвращает сокет при успехе, None при любой ошибке."""
     s = None
     try:
+        deadline = time.time() + timeout
         s = socket.create_connection((proxy_ip, int(proxy_port)), timeout)
         s.settimeout(timeout)
         if int(version) == 5:
             s.sendall(b"\x05\x01\x00")
-            if recv_exact(s, 2) != b"\x05\x00":
+            if recv_exact(s, 2, deadline) != b"\x05\x00":
                 raise OSError("SOCKS5: метод без авторизации не принят")
             if dst_ip:
                 addr = b"\x01" + socket.inet_aton(dst_ip)
@@ -539,14 +547,14 @@ def socks_open(proxy_ip, proxy_port, version, dst_ip=None, dst_domain=None,
                     raise ValueError("Некорректное доменное имя")
                 addr = b"\x03" + bytes([len(domain)]) + domain
             s.sendall(b"\x05\x01\x00" + addr + int(dst_port).to_bytes(2, "big"))
-            if not read_socks5_reply(s):
+            if not read_socks5_reply(s, deadline):
                 raise OSError("SOCKS5: CONNECT отклонён")
         else:
             if dst_domain and not dst_ip:
                 dst_ip = socket.gethostbyname(dst_domain)
             s.sendall(b"\x04\x01" + int(dst_port).to_bytes(2, "big")
                       + socket.inet_aton(dst_ip) + b"\x00")
-            rep = recv_exact(s, 8)
+            rep = recv_exact(s, 8, deadline)
             if rep is None or len(rep) < 2 or rep[0] != 0 or rep[1] != 0x5A:
                 raise OSError("SOCKS4: CONNECT отклонён")
         return s
@@ -572,14 +580,18 @@ def countries_match(a, b):
     return a == b or a.split()[0] == b.split()[0]
 
 
-def http_via(s):
-    """Один HTTP GET через уже открытый SOCKS-сокет (проверка качества)."""
+def http_via(s, deadline):
+    """Один HTTP GET через уже открытый SOCKS-сокет с общим дедлайном:
+    капающий сервер не может растянуть чтение бесконечно."""
     try:
         s.sendall(b"GET /json?fields=status,country,query HTTP/1.1\r\n"
                   b"Host: ip-api.com\r\nConnection: close\r\n\r\n")
-        s.settimeout(TIMEOUT)
         buf = b""
         while True:
+            left = deadline - time.time()
+            if left <= 0:
+                return None
+            s.settimeout(min(TIMEOUT, left))
             chunk = s.recv(65536)
             if not chunk:
                 break
@@ -623,7 +635,7 @@ def check_quality(p, rounds=ROUNDS):
         if s is None:
             continue
         lats.append((time.time() - t0) * 1000.0)
-        data = http_via(s)
+        data = http_via(s, time.time() + 15.0)
         try:
             s.close()
         except Exception:
