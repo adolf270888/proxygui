@@ -1096,6 +1096,7 @@ class ProxyApp(App):
     def build(self):
         Window.softinput_mode = "below_target"
         self.q = queue.Queue()
+        self._busy = False
         self.mode_name = MODES[0]
         self.manual = False
         self.rows = {}
@@ -1198,6 +1199,8 @@ class ProxyApp(App):
                     self.upsert_row(payload)
                 elif kind == "status":
                     self._card(*payload)
+                elif kind == "card":
+                    self._card(*payload)
                 elif kind == "counts":
                     self.lbl_counts.text = payload
                 elif kind == "filters":
@@ -1206,6 +1209,9 @@ class ProxyApp(App):
                     self.apply_filters()
         except queue.Empty:
             pass
+        except Exception as e:
+            print("[ui] " + traceback.format_exc(limit=2))
+            self.q.put(("log", f"[ui] ошибка отображения: {type(e).__name__}: {e}"))  
 
     def _card(self, active, state, ms=None):
         color = {"up": (0.3, 0.85, 0.4, 1), "down": (0.9, 0.3, 0.3, 1),
@@ -1282,8 +1288,18 @@ class ProxyApp(App):
             self.log(f"[режим] {text}")
 
     def refresh(self, enable):
-        threading.Thread(target=self._worker, args=(enable,), daemon=True).start()
+        if self._busy:
+            self.log("[обновление] уже идёт — дождитесь завершения")
+            return
+        self._busy = True
+        threading.Thread(target=self._worker_run, args=(enable,), daemon=True).start()
 
+    def _worker_run(self, enable):
+        try:
+            self._worker(enable)
+        finally:
+            self._busy = False
+          
     def _worker(self, enable):
         try:
             proxies, source, reason = get_proxies(self.mode_name, self.log)
@@ -1297,9 +1313,20 @@ class ProxyApp(App):
             self.q.put(("counts", "всего: %d · живых: ? · утечек: ?" % len(proxies)))
             with concurrent.futures.ThreadPoolExecutor(TEST_WORKERS) as ex:
                 futs = [ex.submit(check_quality, p) for p in proxies[:TEST_LIMIT]]
-                for f in concurrent.futures.as_completed(futs):
-                    p = f.result()
-                    self.q.put(("row", dict(p)))
+            total = len(futs)
+            checked = []
+            for f in concurrent.futures.as_completed(futs):
+                checked.append(f.result())
+                done = len(checked)
+                if done % 10 == 0 or done == total:
+                    alive = sum(1 for c in checked if c.get("alive"))
+                    self.log(f"[проверка] {done}/{total}, живых: {alive}…")
+                if done % 25 == 0 or done == total:
+                    STORE.update_many(checked)
+                    checked = []
+                    alive = sum(1 for c in STORE.all() if c.get("alive"))
+                    self.q.put(("counts", f"всего: {len(proxies)} · живых: {alive} · утечек: ?"))
+                    self.q.put(("refilter", None))
             self.q.put(("counts", self._counts_text()))
             countries = sorted({p.get("country", "") for p in STORE.all() if p.get("country")})
             self.q.put(("filters", ["все страны"] + countries))
@@ -1313,7 +1340,7 @@ class ProxyApp(App):
                     self.log("[включение] живых SOCKS5 не нашлось — попробуйте позже.")
         except Exception:
             self.log("[ошибка воркера] " + traceback.format_exc(limit=1).splitlines()[-1])
-
+          
     def _counts_text(self):
         total, alive, leaks = STORE.counts()
         return f"всего: {total} · живых: {alive} · утечек: {leaks}"
@@ -1335,8 +1362,8 @@ class ProxyApp(App):
                  f"({p.get('country') or '?'}, рейтинг {p.get('score', 0)})")
         if ANDROID:
             self.log(BRIDGE_HINT)
-        self._card(f"{p['ip']}:{p['port']}", "up")
-        self.apply_filters()
+        self.q.put(("card", (f"{p['ip']}:{p['port']}", "up")))
+        self.q.put(("refilter", None))
 
     def activate_selected(self, p):
         self.activate(p, manual=True)
@@ -1351,7 +1378,7 @@ class ProxyApp(App):
     def on_bridge_switch(self, p):
         self.manual = False
         self.log(f"[мост] переключился на {p['ip']}:{p['port']}")
-        self._card(f"{p['ip']}:{p['port']}", "up")
+        self.q.put(("card", (f"{p['ip']}:{p['port']}", "up")))
 
     def _auto(self, *_):
         if not self.manual:
