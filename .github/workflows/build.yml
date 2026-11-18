@@ -58,20 +58,44 @@ jobs:
           python - <<'EOF'
           import re
           p = "buildozer.spec"
-          s = open(p).read()
-          def setkey(s, key, val):
-              pat = rf'^#?\s*{re.escape(key)}\s*=.*$'
-              repl = f"{key} = {val}"
-              if re.search(pat, s, re.M):
-                  return re.sub(pat, repl, s, count=1, flags=re.M)
-              return s + f"\n{repl}\n"
-          s = setkey(s, "android.accept_sdk_license", "True")
-          s = setkey(s, "android.build_tools_version", "34.0.0")
-          s = setkey(s, "p4a.branch", "2024.10.1")
-          open(p, "w").write(s)
-          print("patched:")
+          lines = open(p).read().splitlines()
+          def setkey(lines, key, val):
+              pat = re.compile(rf'^#?\s*{re.escape(key)}\s*=')
+              out, in_app, done = [], False, False
+              for ln in lines:
+                  s = ln.strip().lower()
+                  if s == '[app]': in_app = True
+                  elif s.startswith('[') and s != '[app]': in_app = False
+                  if pat.match(ln):
+                      if in_app and not done:
+                          out.append(f"{key} = {val}")
+                          done = True
+                      continue  # убираем дубликаты и закомментированные
+                  out.append(ln)
+              if not done:
+                  for i, ln in enumerate(out):
+                      if ln.strip().lower() == '[app]':
+                          out.insert(i + 1, f"{key} = {val}")
+                          done = True
+                          break
+                  if not done:
+                      out.append("[app]")
+                      out.append(f"{key} = {val}")
+              return out
+          for key, val in [
+              ("android.accept_sdk_license", "True"),
+              ("android.build_tools_version", "34.0.0"),
+              ("p4a.branch", "2024.10.1"),
+          ]:
+              lines = setkey(lines, key, val)
+          open(p, "w").write("\n".join(lines) + "\n")
+          print("patched [app] section:")
           EOF
-          grep -n "accept_sdk_license\|build_tools_version\|p4a.branch" buildozer.spec
+          sed -n '/^
+          $$
+          app
+          $$
+          /,/^$/p' buildozer.spec | grep -E "accept_sdk_license|build_tools_version|p4a.branch"
       
       - name: Build APK
         run: |
