@@ -67,12 +67,11 @@ jobs:
               return s + f"\n{repl}\n"
           s = setkey(s, "android.accept_sdk_license", "True")
           s = setkey(s, "android.build_tools_version", "34.0.0")
-          s = setkey(s, "android.skip_update", "True")
+          s = setkey(s, "p4a.branch", "2024.10.1")
           open(p, "w").write(s)
           print("patched:")
           EOF
-          grep -n "accept_sdk_license\|build_tools_version\|skip_update" buildozer.spec
-
+          grep -n "accept_sdk_license\|build_tools_version\|p4a.branch" buildozer.spec
       
       - name: Build APK
         run: |
