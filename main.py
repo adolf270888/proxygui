@@ -369,20 +369,23 @@ def get_proxies(mode, log=None):
         return [], "не удалось загрузить страницу поиска", None
 
     last_html = html
-        form_html, action, method = find_search_form(html)
-        if not form_html:
-            found = parse_table_proxies(html, only_russia=only_ru, exclude_russia=ex_ru)
-            if found:
-                return found, "случайная выборка главной страницы (формы нет)", None
-            return [], "формы поиска на странице нет", reason
-        code = solve_captcha(form_html)
-        if code is None:
-            _dump("form.html", html)
-            reason = "капчу решить не удалось (дамп: tehome_form.html)"
-            log(f"[поиск] {reason}, повтор…")
-            time.sleep(RETRY_WAIT)
-            continue
-        if not cand_queue:
+
+    form_html, action, method = find_search_form(html)
+    if not form_html:
+        found = parse_table_proxies(html, only_russia=only_ru, exclude_russia=ex_ru)
+        if found:
+            return found, "случайная выборка главной страницы (формы нет)", None
+        return [], "формы поиска на странице нет", None
+
+    code = solve_captcha(form_html)
+    if code is None:
+        _dump("form.html", html)
+        reason = "капчу решить не удалось (дамп: tehome_form.html)"
+        log(f"[поиск] {reason}, повтор…")
+        time.sleep(RETRY_WAIT)
+        return [], reason, None
+
+    if not cand_queue:
             cand_queue = resolve_location_candidates(form_html, mode)
             if not cand_queue:
                 if only_ru:
