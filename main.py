@@ -81,7 +81,17 @@ CACHE_PATH = os.path.join(APP_DIR, CACHE_FILE)
 
 # ---------------------------------------------------------------- сеть
 
+import ssl
+
+def _ssl_context():
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
 _opener = urllib.request.build_opener(
+    urllib.request.HTTPSHandler(context=_ssl_context()),
     urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
 
