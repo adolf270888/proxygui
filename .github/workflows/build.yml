@@ -91,9 +91,9 @@ jobs:
           set -o pipefail
           buildozer -v android debug | tee build.log
 
-            - name: Show build log tail on failure
-          if: failure()
-          run: |
+      - name: Show build log tail on failure
+        if: failure()
+        run: |
           echo "===== ПАДАЮЩАЯ КОМАНДА ====="
           grep -n "Run '" build.log | tail -n 5
           echo "===== TRACEBACK / ОШИБКИ ====="
