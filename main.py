@@ -1083,6 +1083,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.progressbar import ProgressBar
 
 ANDROID = bool(os.environ.get("ANDROID_ARGUMENT") or os.environ.get("ANDROID_DATA"))
 BRIDGE_HINT = ("Прокси поднят на 127.0.0.1:%d. Как включить на Android:\n"
@@ -1142,7 +1143,16 @@ class ProxyApp(App):
         bar.add_widget(self._btn("Обновить и включить", lambda *_: self.refresh(True)))
         bar.add_widget(self._btn("Обновить", lambda *_: self.refresh(False)))
         bar.add_widget(self._btn("Выключить", lambda *_: self.disable()))
+        bar.add_widget(self._btn("Wi-Fi прокси", lambda *_: self.open_wifi_settings()))
         root.add_widget(bar)
+              # --- прогресс-полоса и этап
+        self.progress = ProgressBar(max=100, value=0, size_hint_y=None, height=dp(6))
+        self.lbl_stage = Label(text="", halign="left", size_hint_y=None,
+                               height=dp(20), font_size=dp(12),
+                               color=(0.6, 0.7, 0.9, 1))
+        self.lbl_stage.bind(size=lambda i, s: setattr(i, "text_size", (s[0], None)))
+        root.add_widget(self.progress)
+        root.add_widget(self.lbl_stage)
 
         # --- фильтры
         flt = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(6))
@@ -1177,6 +1187,8 @@ class ProxyApp(App):
         root.add_widget(self.logbox)
 
         Clock.schedule_interval(self._poll, 0.2)
+        self._next_refresh = time.time() + REFRESH_MINUTES * 60
+        Clock.schedule_interval(self._tick, 1.0)
         Clock.schedule_once(self._auto, REFRESH_MINUTES * 60.0)
         return root
 
@@ -1187,6 +1199,20 @@ class ProxyApp(App):
                    height=dp(42))
         b.bind(on_release=cb)
         return b
+      
+    def open_wifi_settings(self):
+        from kivy.core.clipboard import Clipboard
+        Clipboard.copy(f"127.0.0.1:{BRIDGE_PORT}")
+        self.log(f"[настройка] {BRIDGE_HINT}")
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            Settings = autoclass("android.provider.Settings")
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+            PythonActivity.mActivity.startActivity(intent)
+        except Exception as e:
+            self.log(f"[настройка] не удалось открыть настройки: {e}")
 
     @staticmethod
     def _tg(text, down):
@@ -1219,11 +1245,27 @@ class ProxyApp(App):
                     self.sp_country.values = payload
                 elif kind == "refilter":
                     self.apply_filters()
+                elif kind == "progress":
+                    done, total = payload
+                    self.progress.value = 100.0 * done / total if total else 0
+                    self.lbl_stage.text = f"проверка качества: {done} из {total}"
+                elif kind == "stage":
+                    self.progress.value = 0
+                    self.lbl_stage.text = payload
         except queue.Empty:
             pass
         except Exception as e:
             print("[ui] " + traceback.format_exc(limit=2))
             self.q.put(("log", f"[ui] ошибка отображения: {type(e).__name__}: {e}"))  
+
+    def _tick(self, dt):
+        left = int(self._next_refresh - time.time())
+        if left > 0:
+            m, s = divmod(left, 60)
+            if s == 0:
+                self.lbl_extra.text = (f"режим: {self.mode_name}"
+                                       + (" · выбран вручную" if self.manual else "")
+                                       + f" · автообновление через {m} мин")
 
     def _card(self, active, state, ms=None):
         color = {"up": (0.3, 0.85, 0.4, 1), "down": (0.9, 0.3, 0.3, 1),
@@ -1305,6 +1347,7 @@ class ProxyApp(App):
             return
         self._busy = True
         threading.Thread(target=self._worker_run, args=(enable,), daemon=True).start()
+        self._next_refresh = time.time() + REFRESH_MINUTES * 60
 
     def _worker_run(self, enable):
         try:
@@ -1314,6 +1357,7 @@ class ProxyApp(App):
           
     def _worker(self, enable):
         try:
+            self.q.put(("stage", "поиск списка прокси (сайт + капча)…"))
             proxies, source, reason = get_proxies(self.mode_name, self.log)
             if not proxies:
                 if reason:
@@ -1332,6 +1376,7 @@ class ProxyApp(App):
                 for f in concurrent.futures.as_completed(futs):
                     p = f.result()
                     done += 1
+                    self.q.put(("progress", (done, total)))
                     batch.append(dict(p))
                     if p.get("alive"):
                         alive_seen += 1
